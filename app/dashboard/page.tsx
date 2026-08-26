@@ -146,7 +146,7 @@ export default function DashboardPage() {
         quest.id === "apply" ? { ...quest, completed: true } : quest
       )
     );
-    window.open(match.job.url, "_blank");
+    window.open(match.job.job_url, "_blank");
     setSelectedMatch(null);
   };
 

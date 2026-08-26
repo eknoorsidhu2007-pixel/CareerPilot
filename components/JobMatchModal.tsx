@@ -81,7 +81,7 @@ export function JobMatchModal({
           <Button variant="outline" onClick={onSave}>
             Save
           </Button>
-          <a href={job.url} target="_blank" rel="noopener noreferrer">
+          <a href={job.job_url} target="_blank" rel="noopener noreferrer">
             <Button variant="ghost" size="icon">
               <ExternalLink className="h-4 w-4" />
             </Button>
