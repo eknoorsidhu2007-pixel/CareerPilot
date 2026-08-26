@@ -62,7 +62,7 @@ export interface Job {
   description: string;
   skills_required: string[];
   salary_range: string | null;
-  url: string;
+  job_url: string;
   source: string;
   posted_date: string;
   applicant_count?: number;

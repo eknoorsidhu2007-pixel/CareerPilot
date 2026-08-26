@@ -10,7 +10,7 @@ export interface ScrapedJobInput {
   description: string;
   skills_required: string[];
   salary_range: string | null;
-  url: string;
+  job_url: string;
   source: string;
   posted_date: string;
   applicant_count?: number;
@@ -58,7 +58,7 @@ export async function scrapeRemotive(): Promise<ScrapedJobInput[]> {
           (Array.isArray(j.tags) ? (j.tags as string[]).join(" ") : "")
       ),
       salary_range: j.salary ? String(j.salary) : null,
-      url: String(j.url || j.job_url || ""),
+      job_url: String(j.url || j.job_url || ""),
       source: "remotive",
       posted_date: String(j.publication_date || new Date().toISOString()),
       applicant_count: Math.floor(Math.random() * 200) + 20,
@@ -91,7 +91,7 @@ export async function scrapeRemoteOK(): Promise<ScrapedJobInput[]> {
       salary_range: j.salary_min
         ? `$${j.salary_min}${j.salary_max ? ` - $${j.salary_max}` : ""}`
         : null,
-      url: j.url ? String(j.url) : `https://remoteok.com/remote-jobs/${j.id}`,
+      job_url: j.url ? String(j.url) : `https://remoteok.com/remote-jobs/${j.id}`,
       source: "remoteok",
       posted_date: j.date
         ? new Date(String(j.date)).toISOString()
@@ -123,7 +123,7 @@ export async function scrapeTheMuse(): Promise<ScrapedJobInput[]> {
         description: String(j.contents || "").replace(/<[^>]+>/g, " ").slice(0, 2000),
         skills_required: extractSkillsFromText(String(j.contents || "") + " " + String(j.name || "")),
         salary_range: null,
-        url: `https://www.themuse.com/jobs/${company?.short_name}/${j.short_name}`,
+        job_url: `https://www.themuse.com/jobs/${company?.short_name}/${j.short_name}`,
         source: "themuse",
         posted_date: String(j.publication_date || new Date().toISOString()),
         applicant_count: Math.floor(Math.random() * 300) + 50,
@@ -151,7 +151,7 @@ export async function scrapeArbeitnow(): Promise<ScrapedJobInput[]> {
         String(j.description || "") + " " + String(j.tags || "")
       ),
       salary_range: null,
-      url: String(j.url || ""),
+      job_url: String(j.url || ""),
       source: "arbeitnow",
       posted_date: j.created_at
         ? new Date(String(j.created_at)).toISOString()
@@ -197,7 +197,7 @@ export function getSeedJobs(): ScrapedJobInput[] {
         description: `${company.name} is hiring a ${role.title}. Requirements: ${role.skills.join(", ")}.`,
         skills_required: role.skills,
         salary_range: "$45/hr - $65/hr",
-        url: `https://careers.example.com/${company.name.toLowerCase()}/intern-${id}`,
+        job_url: `https://careers.example.com/${company.name.toLowerCase()}/intern-${id}`,
         source: "seed",
         posted_date: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString(),
         applicant_count: Math.floor(Math.random() * 500) + 50,
@@ -225,9 +225,9 @@ export async function scrapeAllSources(): Promise<ScrapedJobInput[]> {
 
   const seen = new Set<string>();
   return combined.filter((j) => {
-    if (!j.url || !j.title) return false;
-    if (seen.has(j.url)) return false;
-    seen.add(j.url);
+    if (!j.job_url || !j.title) return false;
+    if (seen.has(j.job_url)) return false;
+    seen.add(j.job_url);
     return true;
   });
 }
@@ -242,7 +242,7 @@ export function scrapedToJob(input: ScrapedJobInput, id: string): Job {
     description: input.description,
     skills_required: input.skills_required,
     salary_range: input.salary_range,
-    url: input.url,
+    job_url: input.job_url,
     source: input.source,
     posted_date: input.posted_date,
     applicant_count: input.applicant_count,

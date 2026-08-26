@@ -91,7 +91,7 @@ export function JobCard({
           Apply
         </Button>
         <a
-          href={job.url}
+          href={job.job_url}
           target="_blank"
           rel="noopener noreferrer"
           className="ml-auto text-muted hover:text-text"

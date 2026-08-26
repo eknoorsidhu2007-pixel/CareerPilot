@@ -57,7 +57,7 @@ function makeJob(id: string): Job {
     description: '',
     skills_required: ['React'],
     salary_range: null,
-    url: `https://example.com/${id}`,
+    job_url: `https://example.com/${id}`,
     source: 'seed',
     posted_date: '2026-01-01T00:00:00.000Z',
     scraped_at: '2026-01-01T00:00:00.000Z',
@@ -136,7 +136,7 @@ describe('POST /api/match-jobs - validation', () => {
 
 describe('POST /api/match-jobs - demo mode (no Supabase)', () => {
   it('scrapes live sources and returns ranked matches', async () => {
-    mockScrape.mockResolvedValue([{ url: 'https://example.com/a' }]);
+    mockScrape.mockResolvedValue([{ job_url: 'https://example.com/a' }]);
     mockRank.mockReturnValue([
       { job: makeJob('job_1'), score: 92, matchingSkills: ['React'], missingSkills: [] },
       { job: makeJob('job_2'), score: 71, matchingSkills: ['React'], missingSkills: ['Go'] },
@@ -223,7 +223,7 @@ describe('POST /api/match-jobs - with Supabase', () => {
   it('backfills by scraping when the jobs table is nearly empty', async () => {
     const { client } = makeSupabaseStub([makeJob('only_one')]);
     mockCreateSupabase.mockReturnValue(client);
-    mockScrape.mockResolvedValue([{ url: 'https://example.com/new' }]);
+    mockScrape.mockResolvedValue([{ job_url: 'https://example.com/new' }]);
 
     await POST(buildRequest({ profile, userId: 'demo-user' }));
 

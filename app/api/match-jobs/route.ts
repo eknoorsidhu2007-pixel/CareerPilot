@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { createSupabaseServer } from "@/lib/supabase";
 import { rankJobsForProfile, analyzeSkillGaps } from "@/lib/matcher";
 import { scrapeAllSources, scrapedToJob } from "@/lib/scraper";
+import { JOB_CONFLICT_TARGET, toJobRow } from "@/lib/jobs";
 import type { Job, UserProfile } from "@/types";
 
 export const runtime = "nodejs";
@@ -32,27 +33,23 @@ export async function POST(req: NextRequest) {
 
       if (jobs.length < 10) {
         const scraped = await scrapeAllSources();
-        for (const s of scraped.slice(0, 50)) {
-          const id = randomUUID();
-          await supabase.from("jobs").upsert(
-            {
-              id,
-              title: s.title,
-              company: s.company,
-              location: s.location,
-              remote: s.remote,
-              description: s.description,
-              skills_required: s.skills_required,
-              salary_range: s.salary_range,
-              url: s.url,
-              source: s.source,
-              posted_date: s.posted_date,
-              applicant_count: s.applicant_count,
-            },
-            { onConflict: "url" }
+        const scrapedAt = new Date().toISOString();
+
+        // One batched statement, duplicates skipped at the database.
+        await supabase
+          .from("jobs")
+          .upsert(
+            scraped.slice(0, 50).map((s) => toJobRow(s, scrapedAt)),
+            { onConflict: JOB_CONFLICT_TARGET, ignoreDuplicates: true }
           );
-          jobs.push(scrapedToJob(s, id));
-        }
+
+        const { data: refreshed } = await supabase
+          .from("jobs")
+          .select("*")
+          .order("scraped_at", { ascending: false })
+          .limit(200);
+
+        jobs = (refreshed?.length ? refreshed : scraped.map((s) => scrapedToJob(s, randomUUID()))) as Job[];
       }
     } else {
       const scraped = await scrapeAllSources();

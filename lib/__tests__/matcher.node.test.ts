@@ -24,7 +24,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     description: '',
     skills_required: [],
     salary_range: null,
-    url: 'https://example.com/job_1',
+    job_url: 'https://example.com/job_1',
     source: 'seed',
     posted_date: '2026-01-01T00:00:00.000Z',
     scraped_at: '2026-01-01T00:00:00.000Z',
