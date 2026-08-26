@@ -5,61 +5,108 @@ import {
   getDemoParsedResume,
   parseResumeText,
 } from "@/lib/resume-parser";
+import {
+  ALLOWED_RESUME_EXTENSIONS,
+  MAX_RESUME_BYTES,
+  MIN_EXTRACTED_TEXT_LENGTH,
+  ParsedResumeSchema,
+  formatIssues,
+  normalizeParsedResume,
+  type ResumeExtension,
+} from "@/lib/schemas";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+function fail(error: string, status: number, extra?: Record<string, unknown>) {
+  return NextResponse.json({ error, ...extra }, { status });
+}
+
 export async function POST(req: NextRequest) {
+  // Demo data is opt-in only. It is never used as a fallback for a document
+  // that failed to parse - that would hand the user a fabricated resume.
+  if (req.nextUrl.searchParams.get("demo") === "1") {
+    return NextResponse.json(getDemoParsedResume());
+  }
+
+  let formData: FormData;
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File | null;
+    formData = await req.formData();
+  } catch {
+    return fail("Malformed upload. Send the file as multipart/form-data.", 400);
+  }
 
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
-    }
+  const file = formData.get("file");
+  if (!(file instanceof File)) {
+    return fail("No file provided.", 400);
+  }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const ext = file.name.split(".").pop()?.toLowerCase();
+  if (file.size === 0) {
+    return fail("That file is empty.", 400);
+  }
 
-    let text = "";
-
-    if (ext === "pdf") {
-      text = await extractTextFromPdf(buffer);
-    } else if (ext === "docx") {
-      text = await extractTextFromDocx(buffer);
-    } else {
-      return NextResponse.json(
-        { error: "Unsupported file type. Use PDF or DOCX." },
-        { status: 400 }
-      );
-    }
-
-    if (!text.trim()) {
-      return NextResponse.json(getDemoParsedResume());
-    }
-
-    const parsed = parseResumeText(text);
-
-    if (!parsed.skills.length && !parsed.experience.length) {
-      const demo = getDemoParsedResume();
-      return NextResponse.json({
-        ...demo,
-        name: parsed.name || demo.name,
-        email: parsed.email || demo.email,
-        location: parsed.location || demo.location,
-        github_url: parsed.github_url || demo.github_url,
-      });
-    }
-
-    return NextResponse.json(parsed);
-  } catch (error) {
-    console.error("Resume parse error:", error);
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to parse resume",
-      },
-      { status: 500 }
+  if (file.size > MAX_RESUME_BYTES) {
+    return fail(
+      `That file is too large. The limit is ${Math.floor(
+        MAX_RESUME_BYTES / (1024 * 1024)
+      )} MB.`,
+      413
     );
   }
+
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  if (!ext || !ALLOWED_RESUME_EXTENSIONS.includes(ext as ResumeExtension)) {
+    return fail("Unsupported file type. Use PDF or DOCX.", 415);
+  }
+
+  // --- Extraction ---------------------------------------------------------
+  let text: string;
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    text =
+      ext === "pdf"
+        ? await extractTextFromPdf(buffer)
+        : await extractTextFromDocx(buffer);
+  } catch (error) {
+    console.error("Resume extraction error:", error);
+    return fail(
+      "Could not read that file. It may be corrupt, password-protected, or a scanned image.",
+      422
+    );
+  }
+
+  if (text.trim().length < MIN_EXTRACTED_TEXT_LENGTH) {
+    return fail(
+      "No readable text found. If this is a scanned resume, upload a text-based PDF or DOCX instead.",
+      422
+    );
+  }
+
+  // --- Parse + normalize + validate ---------------------------------------
+  let normalized: unknown;
+  try {
+    normalized = normalizeParsedResume(parseResumeText(text));
+  } catch (error) {
+    console.error("Resume parse error:", error);
+    return fail("Could not parse that resume.", 422);
+  }
+
+  const result = ParsedResumeSchema.safeParse(normalized);
+  if (!result.success) {
+    console.error("Resume validation failed:", formatIssues(result.error));
+    return fail("That resume could not be validated.", 422, {
+      issues: formatIssues(result.error),
+    });
+  }
+
+  // Structurally valid but empty of substance - reject rather than return a
+  // hollow profile the user then has to fill in by hand without being told.
+  if (!result.data.skills.length && !result.data.experience.length) {
+    return fail(
+      "No skills or work experience found in that resume. Check the file, or fill in your profile manually.",
+      422
+    );
+  }
+
+  return NextResponse.json(result.data);
 }
