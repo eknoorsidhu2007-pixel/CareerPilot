@@ -1,14 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabase";
 import { getRankFromXp } from "@/lib/utils";
+import { ProfileUpsertSchema, formatIssues } from "@/lib/schemas";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { userId, profile, experiences, education } = body;
+
+    // Validate before touching the database. A malformed payload must never
+    // reach an upsert or a delete.
+    const parsed = ProfileUpsertSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid profile payload", issues: formatIssues(parsed.error) },
+        { status: 400 }
+      );
+    }
+
+    const { userId, profile, experiences, education } = parsed.data;
 
     const supabase = createSupabaseServer();
-    if (!supabase || !userId || userId.startsWith("demo-")) {
+    if (!supabase || userId.startsWith("demo-")) {
       return NextResponse.json({ success: true, demo: true });
     }
 
@@ -25,7 +37,7 @@ export async function POST(req: NextRequest) {
     await supabase.from("experiences").delete().eq("user_id", userId);
     if (experiences?.length) {
       await supabase.from("experiences").insert(
-        experiences.map((e: Record<string, string>) => ({
+        experiences.map((e) => ({
           user_id: userId,
           title: e.title,
           company: e.company,
@@ -39,7 +51,7 @@ export async function POST(req: NextRequest) {
     await supabase.from("education").delete().eq("user_id", userId);
     if (education?.length) {
       await supabase.from("education").insert(
-        education.map((e: Record<string, unknown>) => ({
+        education.map((e) => ({
           user_id: userId,
           school: e.school,
           degree: e.degree,
