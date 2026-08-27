@@ -1,10 +1,18 @@
 import {
   analyzeSkillGaps,
   generateMatchExplanation,
+  rankJobsByKeywords,
   rankJobsForProfile,
   scoreMatch,
 } from '@/lib/matcher';
 import type { Job, UserProfile, WorkPreferences } from '@/types';
+
+jest.mock('@/lib/embeddings', () => ({
+  isEmbeddingsConfigured: jest.fn(() => false),
+  embedText: jest.fn(),
+  embedTexts: jest.fn(),
+  cosineSimilarity: jest.fn(),
+}));
 
 const basePrefs: WorkPreferences = {
   remote: 'any',
@@ -175,7 +183,7 @@ describe('generateMatchExplanation', () => {
   });
 });
 
-describe('rankJobsForProfile', () => {
+describe('rankJobsByKeywords', () => {
   const profile = makeProfile({ skills: ['React', 'TypeScript'] });
   const jobs = [
     makeJob({ id: 'weak', skills_required: ['Fortran', 'COBOL'] }),
@@ -184,7 +192,7 @@ describe('rankJobsForProfile', () => {
   ];
 
   it('returns results sorted descending by score', () => {
-    const ranked = rankJobsForProfile(profile, jobs);
+    const ranked = rankJobsByKeywords(profile, jobs);
 
     for (let i = 1; i < ranked.length; i++) {
       expect(ranked[i - 1].score).toBeGreaterThanOrEqual(ranked[i].score);
@@ -193,18 +201,18 @@ describe('rankJobsForProfile', () => {
   });
 
   it('respects the limit parameter', () => {
-    expect(rankJobsForProfile(profile, jobs, 2)).toHaveLength(2);
+    expect(rankJobsByKeywords(profile, jobs, 2)).toHaveLength(2);
   });
 
   it('attaches an explanation to every result', () => {
-    for (const match of rankJobsForProfile(profile, jobs)) {
+    for (const match of rankJobsByKeywords(profile, jobs)) {
       expect(typeof match.explanation).toBe('string');
       expect(match.explanation!.length).toBeGreaterThan(0);
     }
   });
 
   it('returns an empty array when there are no jobs', () => {
-    expect(rankJobsForProfile(profile, [])).toEqual([]);
+    expect(rankJobsByKeywords(profile, [])).toEqual([]);
   });
 
   it('falls back to skills inferred from the description when none are listed', () => {
@@ -213,10 +221,88 @@ describe('rankJobsForProfile', () => {
       skills_required: [],
       description: 'We are looking for someone strong in React and TypeScript.',
     });
-    const [match] = rankJobsForProfile(profile, [inferred]);
+    const [match] = rankJobsByKeywords(profile, [inferred]);
 
     expect(match.score).toBeGreaterThan(0);
     expect(match.matchingSkills.length).toBeGreaterThan(0);
+  });
+});
+
+describe('rankJobsForProfile (semantic layer)', () => {
+  const profile = makeProfile({ skills: ['React', 'TypeScript'] });
+  const jobs = [
+    makeJob({ id: 'weak', skills_required: ['Fortran', 'COBOL'] }),
+    makeJob({ id: 'strong', skills_required: ['React', 'TypeScript'] }),
+  ];
+
+  afterEach(() => {
+    jest.resetAllMocks();
+  });
+
+  it('falls back to keyword ranking when embeddings are not configured', async () => {
+    const embeddings = jest.requireMock('@/lib/embeddings') as {
+      isEmbeddingsConfigured: jest.Mock;
+    };
+    embeddings.isEmbeddingsConfigured.mockReturnValue(false);
+
+    const ranked = await rankJobsForProfile(profile, jobs);
+    const keywordRanked = rankJobsByKeywords(profile, jobs);
+
+    expect(ranked).toEqual(keywordRanked);
+  });
+
+  it('blends in semantic similarity when embeddings are configured', async () => {
+    const embeddings = jest.requireMock('@/lib/embeddings') as {
+      isEmbeddingsConfigured: jest.Mock;
+      embedText: jest.Mock;
+      embedTexts: jest.Mock;
+      cosineSimilarity: jest.Mock;
+    };
+    embeddings.isEmbeddingsConfigured.mockReturnValue(true);
+    embeddings.embedText.mockResolvedValue([1, 0]);
+    embeddings.embedTexts.mockResolvedValue([
+      [0, 1], // 'weak' job - orthogonal, no semantic similarity
+      [1, 0], // 'strong' job - identical direction, full similarity
+    ]);
+    embeddings.cosineSimilarity.mockImplementation(
+      (a: number[], b: number[]) => (a[0] === b[0] && a[1] === b[1] ? 1 : 0)
+    );
+
+    const ranked = await rankJobsForProfile(profile, jobs);
+
+    expect(ranked[0].job.id).toBe('strong');
+    // Keyword score alone already had 'weak' at 0 and 'strong' at 100,
+    // so a 50/50 blend keeps 'strong' clearly ahead either way - this
+    // asserts the semantic path actually ran, not just that ordering held.
+    expect(embeddings.embedText).toHaveBeenCalledTimes(1);
+    expect(embeddings.embedTexts).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to keyword ranking if the embeddings call throws', async () => {
+    const embeddings = jest.requireMock('@/lib/embeddings') as {
+      isEmbeddingsConfigured: jest.Mock;
+      embedText: jest.Mock;
+      embedTexts: jest.Mock;
+    };
+    embeddings.isEmbeddingsConfigured.mockReturnValue(true);
+    embeddings.embedText.mockRejectedValue(new Error('network error'));
+    embeddings.embedTexts.mockResolvedValue([]);
+
+    const ranked = await rankJobsForProfile(profile, jobs);
+    const keywordRanked = rankJobsByKeywords(profile, jobs);
+
+    expect(ranked).toEqual(keywordRanked);
+  });
+
+  it('returns an empty array when there are no jobs, without calling the embeddings API', async () => {
+    const embeddings = jest.requireMock('@/lib/embeddings') as {
+      isEmbeddingsConfigured: jest.Mock;
+      embedText: jest.Mock;
+    };
+    embeddings.isEmbeddingsConfigured.mockReturnValue(true);
+
+    expect(await rankJobsForProfile(profile, [])).toEqual([]);
+    expect(embeddings.embedText).not.toHaveBeenCalled();
   });
 });
 

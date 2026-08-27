@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
       jobs = scraped.map((s) => scrapedToJob(s, randomUUID()));
     }
 
-    const ranked = rankJobsForProfile(profile, jobs, 50);
+    const ranked = await rankJobsForProfile(profile, jobs, 50);
     const skillGaps = analyzeSkillGaps(profile, jobs);
 
     // Deterministic ranking first; the LLM only rewrites the top explanations

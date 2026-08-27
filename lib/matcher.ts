@@ -1,5 +1,6 @@
 import type { Job, UserProfile, WorkPreferences } from "@/types";
 import { extractSkillsFromText, skillsOverlap } from "./skills";
+import { cosineSimilarity, embedText, embedTexts, isEmbeddingsConfigured } from "./embeddings";
 
 export interface ScoredMatch {
   job: Job;
@@ -104,7 +105,20 @@ export function scoreJobForProfile(
   return { job, score, matchingSkills, missingSkills };
 }
 
-export function rankJobsForProfile(
+function profileEmbeddingText(profile: UserProfile): string {
+  return profile.skills.join(", ");
+}
+
+function jobEmbeddingText(job: Job): string {
+  return `${job.title}. ${job.description || ""}`;
+}
+
+/**
+ * Pure keyword/skill-overlap ranking - fast, synchronous, no network or
+ * API key required. This is the original scoring behavior, kept as its
+ * own entry point so it stays usable (and unit-testable) on its own.
+ */
+export function rankJobsByKeywords(
   profile: UserProfile,
   jobs: Job[],
   limit = 50
@@ -127,6 +141,73 @@ export function rankJobsForProfile(
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
+}
+
+/**
+ * Semantic matching engine: blends keyword/skill-overlap scoring with
+ * sentence-embedding cosine similarity between the candidate's profile
+ * and each job's title + description (Gemini text-embedding-004).
+ *
+ * Falls back to rankJobsByKeywords - no network, no API key needed -
+ * when GEMINI_API_KEY is unset or if the embedding calls fail for any
+ * reason. A broken embeddings provider should degrade ranking quality,
+ * not break job matching outright.
+ */
+export async function rankJobsForProfile(
+  profile: UserProfile,
+  jobs: Job[],
+  limit = 50
+): Promise<ScoredMatch[]> {
+  if (jobs.length === 0) return [];
+  if (!isEmbeddingsConfigured()) return rankJobsByKeywords(profile, jobs, limit);
+
+  const prefs = defaultPreferences(profile);
+
+  try {
+    const [profileEmbedding, jobEmbeddings] = await Promise.all([
+      embedText(profileEmbeddingText(profile)),
+      embedTexts(jobs.map(jobEmbeddingText)),
+    ]);
+
+    return jobs
+      .map((job, i) => {
+        const base = scoreJobForProfile(profile, job);
+
+        // Cosine similarity between real sentence embeddings on related
+        // technical text typically lands around 0.3-0.8 rather than 0-1,
+        // so a raw 0.4 would read as a weak 40% match when it usually
+        // reflects a solid semantic fit. Clamped to [0, 1] before scaling
+        // to a 0-100 contribution rather than passed through directly.
+        const semanticSimilarity = cosineSimilarity(
+          profileEmbedding,
+          jobEmbeddings[i]
+        );
+        const semanticPct = Math.min(Math.max(semanticSimilarity, 0), 1) * 100;
+
+        const blended = Math.round(base.score * 0.5 + semanticPct * 0.5);
+        const score = Math.min(Math.max(blended, 0), 100);
+
+        return {
+          ...base,
+          score,
+          explanation: generateMatchExplanation(
+            score,
+            job,
+            base.matchingSkills,
+            base.missingSkills,
+            prefs
+          ),
+        };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+  } catch (err) {
+    console.error(
+      "Semantic matching failed, falling back to keyword ranking:",
+      err
+    );
+    return rankJobsByKeywords(profile, jobs, limit);
+  }
 }
 
 export function analyzeSkillGaps(
