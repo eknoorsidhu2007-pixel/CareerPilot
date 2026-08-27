@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { createSupabaseServer } from "@/lib/supabase";
 import { rankJobsForProfile, analyzeSkillGaps } from "@/lib/matcher";
+import { enrichMatchExplanations } from "@/lib/matcher-llm";
 import { scrapeAllSources, scrapedToJob } from "@/lib/scraper";
 import { JOB_CONFLICT_TARGET, toJobRow } from "@/lib/jobs";
 import type { Job, UserProfile } from "@/types";
@@ -59,7 +60,11 @@ export async function POST(req: NextRequest) {
     const ranked = rankJobsForProfile(profile, jobs, 50);
     const skillGaps = analyzeSkillGaps(profile, jobs);
 
-    const matches = ranked.map((m) => ({
+    // Deterministic ranking first; the LLM only rewrites the top explanations
+    // and silently keeps the template ones when it is unavailable.
+    const explained = await enrichMatchExplanations(ranked, profile);
+
+    const matches = explained.map((m) => ({
       id: randomUUID(),
       user_id: userId,
       job_id: m.job.id,
