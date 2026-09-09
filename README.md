@@ -1,4 +1,3 @@
-[README-CareerPilot.md](https://github.com/user-attachments/files/31981994/README-CareerPilot.md)
 # CareerPilot
 
 ![Next.js](https://img.shields.io/badge/Next.js-14-black?logo=next.js)
