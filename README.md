@@ -1,3 +1,4 @@
+[README (9).md](https://github.com/user-attachments/files/35308768/README.9.md)
 # CareerPilot
 
 ![Next.js](https://img.shields.io/badge/Next.js-14-black?logo=next.js)
@@ -78,8 +79,7 @@ flowchart LR
         SC["lib/scraper.ts<br/>dedupe + normalize"]
     end
 
-    subgraph DB[("Supabase Postgres<br/>+ Auth + RLS")]
-    end
+    DB[("Supabase Postgres<br/>+ Auth + RLS")]
 
     subgraph Profile["Profile"]
         UP[Resume PDF/DOCX]
@@ -104,7 +104,7 @@ flowchart LR
     DB -->|jobs| Match
     KW --> Match
     EM -->|cosine similarity| Match
-    Match -->|score + matching/missing skills| LLM -->|explanation| UI
+    Match -->|"score + matching/missing skills"| LLM -->|explanation| UI
     Match --> UI
 ```
 
